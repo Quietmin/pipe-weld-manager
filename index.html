@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>배관 용접 관리 시스템</title>
+<style>
+  :root {
+    --bg: #14181f;
+    --panel: #1c222c;
+    --panel2: #232b38;
+    --border: #313c4d;
+    --text: #e8ecf2;
+    --muted: #93a0b4;
+    --accent: #4da3ff;
+    --c-none: #b7bfca;
+    --c-delivered: #26a69a;
+    --c-fitup: #2b7fff;
+    --c-welded: #ff9800;
+    --c-pass: #4caf50;
+    --c-fail: #f44336;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: "Malgun Gothic", "맑은 고딕", "Segoe UI", sans-serif;
+    font-size: 13px; overflow: hidden;
+    display: flex; flex-direction: column;
+  }
+  /* ===== 헤더 ===== */
+  header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 8px 14px; background: var(--panel);
+    border-bottom: 1px solid var(--border); flex-wrap: wrap;
+  }
+  header h1 { font-size: 16px; font-weight: 700; white-space: nowrap; }
+  header h1 span { color: var(--accent); }
+  /* 라인 선택 드롭다운 (수백 개 라인 대응) */
+  .line-picker { position: relative; }
+  #lpBtn {
+    padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 12.5px;
+    background: #17426e; border: 1px solid var(--accent); color: #fff; font-weight: 700;
+    max-width: 340px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #lpDrop {
+    display: none; position: absolute; top: calc(100% + 6px); left: 0; z-index: 60;
+    width: 360px; background: var(--panel2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 9px; box-shadow: 0 10px 28px rgba(0,0,0,.55);
+  }
+  #lpDrop.open { display: block; }
+  #lpSearch {
+    width: 100%; background: var(--panel); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px; padding: 7px 9px;
+    font-size: 12.5px; margin-bottom: 7px;
+  }
+  #lpSearch:focus { outline: none; border-color: var(--accent); }
+  #lpList { max-height: 340px; overflow-y: auto; }
+  .lp-item {
+    padding: 7px 10px; border-radius: 6px; cursor: pointer; font-size: 12.5px;
+    display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  }
+  .lp-item:hover { background: #253044; }
+  .lp-item.active { background: #17426e; }
+  .lp-count { color: var(--muted); font-size: 11px; padding: 4px 10px 2px; }
+  .view-tabs { display: flex; gap: 4px; background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 3px; }
+  .view-tab { padding: 5px 13px; border-radius: 6px; cursor: pointer; font-size: 12px; color: var(--muted); user-select: none; font-weight: 700; }
+  .view-tab.active { background: #17426e; color: #fff; }
+  body.dash-mode .sys-wrap, body.dash-mode .line-picker, body.dash-mode #dashboard, body.dash-mode #main { display: none; }
+  body:not(.dash-mode) #dashPage { display: none; }
+  .sys-wrap { display: flex; align-items: center; gap: 6px; }
+  .sys-label { color: var(--muted); font-size: 11px; font-weight: 700; }
+  #sysSelect {
+    background: var(--panel2); color: #ffd47f; border: 1px solid #5a4a22;
+    border-radius: 6px; padding: 5px 8px; font-size: 12px; font-weight: 700; cursor: pointer;
+  }
+  #sysSelect:hover { border-color: #c9a24b; }
+  .spacer { flex: 1; }
+  .btn {
+    padding: 5px 11px; border-radius: 6px; cursor: pointer; font-size: 12px;
+    background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+  }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { background: #17426e; border-color: var(--accent); }
+  .btn.danger:hover { border-color: var(--c-fail); color: var(--c-fail); }
+  /* ===== 대시보드 ===== */
+  #dashboard {
+    display: flex; gap: 8px; padding: 8px 14px; flex-wrap: wrap;
+    background: var(--panel); border-bottom: 1px solid var(--border);
+  }
+  .chip {
+    display: flex; align-items: center; gap: 7px;
+    background: var(--panel2); border: 1px solid var(--border);
+    border-radius: 7px; padding: 6px 12px; min-width: 86px;
+  }
+  .chip .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .chip .lbl { color: var(--muted); font-size: 11px; }
+  .chip .val { font-size: 16px; font-weight: 700; margin-left: auto; }
+  .chip.rate .val { color: var(--accent); }
+  .chip.fail-chip { cursor: pointer; }
+  .chip.fail-chip.has-fail { border-color: var(--c-fail); animation: borderpulse 1.2s infinite; }
+  @keyframes borderpulse {
+    0%,100% { box-shadow: 0 0 0 0 rgba(244,67,54,.5); }
+    50% { box-shadow: 0 0 8px 2px rgba(244,67,54,.5); }
+  }
+  /* ===== 메인 ===== */
+  #main { flex: 1; display: flex; min-height: 0; }
+  #left {
+    width: 480px; min-width: 360px; display: flex; flex-direction: column;
+    border-right: 1px solid var(--border); background: var(--panel);
+  }
+  .panel-tabs { display: flex; border-bottom: 1px solid var(--border); }
+  .panel-tab {
+    flex: 1; text-align: center; padding: 8px 0; cursor: pointer;
+    color: var(--muted); font-size: 13px; border-bottom: 2px solid transparent; user-select: none;
+  }
+  .panel-tab.active { color: #fff; border-bottom-color: var(--accent); }
+  .panel-body { flex: 1; overflow-y: auto; min-height: 0; }
+  /* 필터 */
+  #filters {
+    display: flex; gap: 6px; padding: 8px; flex-wrap: wrap;
+    border-bottom: 1px solid var(--border); background: var(--panel);
+    position: sticky; top: 0; z-index: 5;
+  }
+  #filters select, #filters input {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 5px; padding: 4px 6px; font-size: 12px;
+  }
+  #filters input[type=date] { color-scheme: dark; }
+  /* 테이블 */
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 6px 7px; text-align: left; white-space: nowrap; }
+  th {
+    color: var(--muted); font-size: 11px; font-weight: 600;
+    border-bottom: 1px solid var(--border); position: sticky; top: 0;
+    background: var(--panel); z-index: 2;
+  }
+  #tab-joints table th { top: 41px; }
+  tbody tr { cursor: pointer; border-bottom: 1px solid #222a36; }
+  tbody tr:hover { background: #253044; }
+  tbody tr.selected { background: #2a3b5c; }
+  .st-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+  .st-dot.fail { animation: blink 1s infinite; }
+  @keyframes blink { 50% { opacity: .25; } }
+  .jtype { font-size: 10px; padding: 1px 6px; border-radius: 4px; font-weight: 700; }
+  .jtype.F { background: #5a3a12; color: #ffc46b; }
+  .jtype.S { background: #1d3a52; color: #7fc1ff; }
+  .muted { color: var(--muted); }
+  /* 스풀/통계 */
+  .sec-title { padding: 10px 12px 4px; color: var(--muted); font-size: 11px; font-weight: 700; }
+  .progress-wrap { background: #141a24; border-radius: 4px; height: 8px; overflow: hidden; width: 100px; }
+  .progress-bar { height: 100%; background: var(--c-pass); }
+  input.cell-date {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 4px; padding: 2px 4px; font-size: 12px; color-scheme: dark; width: 125px;
+  }
+  /* ===== 3D 영역 ===== */
+  #viewer { flex: 1; position: relative; min-width: 0; }
+  #canvas3d { width: 100%; height: 100%; display: block; }
+  #legend {
+    position: absolute; left: 10px; bottom: 10px;
+    background: rgba(20,24,31,.88); border: 1px solid var(--border);
+    border-radius: 8px; padding: 9px 12px; font-size: 12px; line-height: 1.9;
+  }
+  #legend .row { display: flex; align-items: center; gap: 8px; }
+  #legend .sw { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+  #legend .shape { width: 12px; height: 12px; flex: none; }
+  #view-controls {
+    position: absolute; right: 10px; top: 10px; display: flex; gap: 6px; flex-direction: column; align-items: flex-end;
+  }
+  #view-controls .btn { background: rgba(28,34,44,.9); }
+  #viewer-hint {
+    position: absolute; left: 10px; top: 10px; color: var(--muted); font-size: 11px;
+    background: rgba(20,24,31,.7); padding: 4px 9px; border-radius: 6px;
+  }
+  /* ===== 상세 패널 ===== */
+  #detail {
+    position: absolute; right: 10px; bottom: 10px; width: 340px;
+    background: rgba(22,28,38,.97); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px; display: none; max-height: calc(100% - 100px); overflow-y: auto;
+  }
+  #detail.open { display: block; }
+  #detail h3 { font-size: 14px; margin-bottom: 2px; }
+  #detail .sub { color: var(--muted); font-size: 11px; margin-bottom: 10px; }
+  #detail label { display: block; color: var(--muted); font-size: 11px; margin: 8px 0 3px; }
+  #detail input, #detail select {
+    width: 100%; background: var(--panel2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 5px; padding: 5px 7px; font-size: 12px;
+    color-scheme: dark;
+  }
+  #detail .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  #detail .status-banner {
+    padding: 6px 10px; border-radius: 6px; font-weight: 700; font-size: 12px;
+    text-align: center; margin-bottom: 8px; color: #fff;
+  }
+  .repair-item {
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 6px;
+    padding: 8px; margin-top: 6px; font-size: 12px;
+  }
+  .repair-item .rhead { display: flex; justify-content: space-between; margin-bottom: 4px; font-weight: 700; }
+  .repair-item .rhead .del { color: var(--c-fail); cursor: pointer; font-weight: 400; }
+  #detail .close {
+    position: absolute; top: 8px; right: 12px; cursor: pointer;
+    color: var(--muted); font-size: 18px;
+  }
+  #detail .actions { display: flex; gap: 8px; margin-top: 12px; }
+  #detail .actions .btn { flex: 1; text-align: center; }
+  /* 통계 */
+  .stat-card { margin: 8px 12px; background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
+  .fail-rate-high { color: var(--c-fail); font-weight: 700; }
+  .fail-rate-ok { color: var(--c-pass); }
+  /* ===== 대시보드 페이지 ===== */
+  #dashPage { flex: 1; overflow-y: auto; padding: 16px 20px 30px; }
+  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 18px; }
+  .kpi {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 16px; position: relative; overflow: hidden;
+  }
+  .kpi .k-label { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+  .kpi .k-value { font-size: 26px; font-weight: 800; letter-spacing: -0.5px; }
+  .kpi .k-sub { color: var(--muted); font-size: 11px; margin-top: 4px; }
+  .kpi .k-value small { font-size: 14px; font-weight: 600; color: var(--muted); }
+  .kpi.hl { border-color: var(--accent); }
+  .kpi.hl .k-value { color: var(--accent); }
+  .kpi.good .k-value { color: var(--c-pass); }
+  .kpi.bad { border-color: var(--c-fail); }
+  .kpi.bad .k-value { color: var(--c-fail); }
+  .kpi.bad.pulse { animation: borderpulse 1.2s infinite; }
+  .dash-cols { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
+  .dash-sec {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 16px; flex: 1; min-width: 380px; margin-bottom: 16px;
+  }
+  .dash-sec h2 { font-size: 14px; margin-bottom: 12px; }
+  .dash-sec h2 .muted { font-weight: 400; font-size: 11px; }
+  .sys-row { margin-bottom: 14px; }
+  .sys-row .sr-head { display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 12.5px; }
+  .stack-bar { display: flex; height: 16px; border-radius: 5px; overflow: hidden; background: #141a24; }
+  .stack-bar div { height: 100%; }
+  .bar-legend { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 10px; color: var(--muted); font-size: 11px; }
+  .bar-legend span { display: inline-flex; align-items: center; gap: 4px; }
+  .bar-legend i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+  .welder-row { display: grid; grid-template-columns: 90px 1fr 120px; gap: 10px; align-items: center; margin-bottom: 9px; font-size: 12.5px; }
+  .welder-row .wr-bar { background: #141a24; border-radius: 4px; height: 13px; overflow: hidden; }
+  .welder-row .wr-bar div { height: 100%; }
+  .welder-row .wr-nums { text-align: right; font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+  .dash-fail-card {
+    border: 1px solid var(--c-fail); border-radius: 8px; padding: 9px 12px;
+    margin-bottom: 8px; cursor: pointer; background: rgba(244,67,54,.06); font-size: 12.5px;
+  }
+  .dash-fail-card:hover { background: rgba(244,67,54,.14); }
+  .dash-line-row { display: grid; grid-template-columns: 1fr 90px 110px 70px; gap: 8px; padding: 7px 4px; border-bottom: 1px solid #222a36; font-size: 12.5px; align-items: center; }
+  .dash-line-row.hdr { color: var(--muted); font-size: 11px; font-weight: 700; border-bottom: 1px solid var(--border); }
+  #toast {
+    position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+    background: #17426e; border: 1px solid var(--accent); color: #fff;
+    padding: 8px 18px; border-radius: 8px; font-size: 13px; display: none; z-index: 99;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🔧 배관 <span>용접 관리</span></h1>
+  <div class="view-tabs">
+    <div class="view-tab active" id="vtDash">📊 대시보드</div>
+    <div class="view-tab" id="vtWork">🔧 작업화면</div>
+  </div>
+  <div class="sys-wrap">
+    <span class="sys-label">계통</span>
+    <select id="sysSelect" title="배관 계통 선택"></select>
+  </div>
+  <div class="line-picker" id="linePicker">
+    <button id="lpBtn">전체 라인 ▾</button>
+    <div id="lpDrop">
+      <input id="lpSearch" type="text" placeholder="🔍 라인번호 검색 (예: 00006, GK1)" autocomplete="off">
+      <div id="lpList"></div>
+    </div>
+  </div>
+  <div class="spacer"></div>
+  <button class="btn primary" id="btnExcel">📊 엑셀 내보내기</button>
+  <button class="btn" id="btnSaveJson">💾 백업(JSON)</button>
+  <button class="btn" id="btnLoadJson">📂 가져오기</button>
+  <button class="btn danger" id="btnReset">초기화</button>
+  <input type="file" id="fileJson" accept=".json" style="display:none">
+</header>
+
+<div id="dashPage"></div>
+
+<div id="dashboard"></div>
+
+<div id="main">
+  <div id="left">
+    <div class="panel-tabs">
+      <div class="panel-tab active" data-tab="joints">조인트</div>
+      <div class="panel-tab" data-tab="spools">스풀(공장)</div>
+      <div class="panel-tab" data-tab="stats">통계</div>
+    </div>
+    <div class="panel-body" id="tab-joints">
+      <div id="filters">
+        <select id="fStatus">
+          <option value="">상태 전체</option>
+          <option value="NONE">미착수</option>
+          <option value="DELIVERED">스풀입고</option>
+          <option value="FITUP">Fit-up</option>
+          <option value="WELDED">용접완료</option>
+          <option value="PASS">NDE합격</option>
+          <option value="FAIL">NDE불합격</option>
+        </select>
+        <select id="fType">
+          <option value="">구분 전체</option>
+          <option value="F">Field(현장)</option>
+          <option value="S">Shop(공장)</option>
+        </select>
+        <input type="date" id="fDate" title="해당 날짜의 용접/NDE 실적 조회">
+        <select id="fDateKind">
+          <option value="any">용접+NDE</option>
+          <option value="weld">용접일</option>
+          <option value="nde">NDE일</option>
+        </select>
+        <button class="btn" id="fClear">필터 해제</button>
+      </div>
+      <table id="jointTable">
+        <thead>
+          <tr><th>상태</th><th>J.No</th><th>구분</th><th>스풀</th><th>용접일</th><th>용접사</th><th>NDE일</th><th>결과</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="panel-body" id="tab-spools" style="display:none"></div>
+    <div class="panel-body" id="tab-stats" style="display:none"></div>
+  </div>
+
+  <div id="viewer">
+    <canvas id="canvas3d"></canvas>
+    <div id="viewer-hint">드래그: 회전 · 휠: 확대 · 우클릭: 이동 · 조인트 클릭: 상세</div>
+    <div id="view-controls">
+      <button class="btn" id="btnFit">⛶ 전체 보기</button>
+      <button class="btn" id="btnLabels">🏷 번호 표시</button>
+    </div>
+    <div id="legend">
+      <div class="row"><span class="sw" style="background:var(--c-none)"></span>미착수</div>
+      <div class="row"><span class="sw" style="background:var(--c-delivered)"></span>스풀 입고 (Shop)</div>
+      <div class="row"><span class="sw" style="background:var(--c-fitup)"></span>Fit-up</div>
+      <div class="row"><span class="sw" style="background:var(--c-welded)"></span>용접 완료</div>
+      <div class="row"><span class="sw" style="background:var(--c-pass)"></span>NDE 합격</div>
+      <div class="row"><span class="sw" style="background:var(--c-fail)"></span>NDE 불합격 ⚠ (깜빡임)</div>
+      <div class="row" style="margin-top:4px"><span class="shape">⬡</span>Field 용접(현장) &nbsp;<span class="shape">●</span>Shop 용접(공장)</div>
+    </div>
+    <div id="detail"></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="libs/three.min.js"></script>
+<script src="libs/OrbitControls.js"></script>
+<script src="libs/xlsx.full.min.js"></script>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
