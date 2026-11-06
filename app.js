@@ -16,6 +16,7 @@ const NDE_TYPES = ["RT", "UT", "PT", "MT", "VT"];
 // DN(mm) -> NPS(inch) : Dia-Inch 집계용
 const DN_INCH = { 15:0.5, 20:0.75, 25:1, 32:1.25, 40:1.5, 50:2, 65:2.5, 80:3, 90:3.5, 100:4, 125:5, 150:6, 200:8, 250:10, 300:12, 350:14, 400:16, 450:18, 500:20, 600:24 };
 function lineInch(line) { return DN_INCH[line.dn] || line.dn / 25.4; }
+function jointInch(line, j) { return j.dn ? (DN_INCH[j.dn] || j.dn / 25.4) : lineInch(line); }
 function fmtDI(v) { return (Math.round(v * 10) / 10).toLocaleString(); }
 
 // ---------- 상태 ----------
@@ -35,10 +36,19 @@ function ensureRec(key) {
 }
 function getSpoolRec(lineId, spool) { return state.spools[lineId + "|" + spool] || null; }
 
+// 시연 모드 (?demo=1) — 예시 데이터를 읽기 전용으로 로드, 실제 저장소를 건드리지 않음
+const DEMO_MODE = new URLSearchParams(location.search).has("demo");
+
 function save() {
+  if (DEMO_MODE) return; // 시연 모드에서는 저장하지 않음
   localStorage.setItem(STORAGE_KEY, JSON.stringify({ records: state.records, spools: state.spools, savedAt: new Date().toISOString() }));
 }
 function load() {
+  if (DEMO_MODE && typeof DEMO_DATA !== "undefined") {
+    state.records = JSON.parse(JSON.stringify(DEMO_DATA.records));
+    state.spools = JSON.parse(JSON.stringify(DEMO_DATA.spools));
+    return;
+  }
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) { const d = JSON.parse(raw); state.records = d.records || {}; state.spools = d.spools || {}; }
@@ -125,7 +135,8 @@ function mmToVec(line, lineIdx, p) {
       -(p[1] + line.origin[1]) / 1000
     );
   }
-  return new THREE.Vector3(p[0] / 1000, p[2] / 1000, -p[1] / 1000 + lineIdx * LINE_OFFSET_Z);
+  const row = lineIdx % 12, col = Math.floor(lineIdx / 12);
+  return new THREE.Vector3(p[0] / 1000 + col * 60, p[2] / 1000, -p[1] / 1000 + row * LINE_OFFSET_Z);
 }
 
 function init3D() {
@@ -180,7 +191,14 @@ function init3D() {
   animate();
 }
 
+const _lblCache = new Map();
 function makeLabelSprite(text, color) {
+  const key = text + "|" + (color || "");
+  if (_lblCache.has(key)) {
+    const sp0 = new THREE.Sprite(new THREE.SpriteMaterial({ map: _lblCache.get(key), depthTest: false, transparent: true }));
+    sp0.scale.set(1.6, 0.8, 1);
+    return sp0;
+  }
   const cv = document.createElement("canvas");
   cv.width = 128; cv.height = 64;
   const ctx = cv.getContext("2d");
@@ -194,6 +212,7 @@ function makeLabelSprite(text, color) {
   ctx.fillStyle = color || "#fff";
   ctx.fillText(text, 64, 34);
   const tex = new THREE.CanvasTexture(cv);
+  _lblCache.set(key, tex);
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
   sp.scale.set(1.6, 0.8, 1);
   return sp;
@@ -231,8 +250,8 @@ function buildAllLines() {
 
     // 라인 이름 라벨 (작고 반투명하게 — 화면 가리지 않도록)
     const nameLbl = makeLabelSprite(line.id, "#9fc7ff");
-    nameLbl.scale.set(4.2, 2.1, 1);
-    nameLbl.material.opacity = 0.75;
+    nameLbl.scale.set(2.6, 1.3, 1);
+    nameLbl.material.opacity = 0.6;
     nameLbl.position.copy(start).add(new THREE.Vector3(0, 2.8, 0));
     nameLbl.userData.isLineName = true;
     g.add(nameLbl);
@@ -298,8 +317,13 @@ function updateLineVisibility() {
 }
 
 function updateLabelVisibility() {
+  const multi = visibleLines().length > 1; // 라인명은 여러 라인 볼 때만 (단일 라인은 헤더에 이미 표시)
   Object.values(lineGroups).forEach(g => {
-    g.children.forEach(c => { if (c.userData && c.userData.isJointLabel) c.visible = showLabels; });
+    g.children.forEach(c => {
+      if (!c.userData) return;
+      if (c.userData.isJointLabel) c.visible = showLabels;
+      if (c.userData.isLineName) c.visible = multi;
+    });
   });
 }
 
@@ -313,7 +337,9 @@ function fitView() {
   if (!has) return;
   const center = box.getCenter(new THREE.Vector3());
   const size = box.getSize(new THREE.Vector3()).length();
-  const dist = Math.max(size * 0.5, 8);
+  // 화각(FOV) 기준 거리 계산 — 대상 전체가 화면에 들어오도록
+  const fovRad = camera.fov * Math.PI / 180;
+  const dist = Math.max((size / 2) / Math.tan(fovRad / 2) * 0.95, 8);
   camera.position.copy(center).add(new THREE.Vector3(dist * 0.6, dist * 0.55, dist * 0.6));
   controls.target.copy(center);
   controls.update();
@@ -684,8 +710,8 @@ function statusDiaInch(lines) {
   // 상태별 Dia-Inch 합계
   const di = { NONE: 0, DELIVERED: 0, FITUP: 0, WELDED: 0, PASS: 0, FAIL: 0, total: 0, joints: 0 };
   lines.forEach(line => {
-    const inch = lineInch(line);
     line.joints.forEach(j => {
+      const inch = jointInch(line, j);
       const st = jointStatus(line.id, j);
       di[st] += inch;
       di.total += inch;
@@ -896,8 +922,8 @@ function selectJoint(key, focus3d) {
     selectRing.visible = true;
     if (focus3d) {
       controls.target.copy(m.position);
-      const off = camera.position.clone().sub(controls.target).normalize().multiplyScalar(9);
-      camera.position.copy(m.position).add(off.length() ? off : new THREE.Vector3(6, 5, 6));
+      const off = camera.position.clone().sub(controls.target).normalize().multiplyScalar(16);
+      camera.position.copy(m.position).add(off.length() ? off : new THREE.Vector3(10, 8, 10));
       controls.update();
     }
   }
@@ -916,7 +942,7 @@ function renderDetail() {
   el.innerHTML = `
     <span class="close" id="dClose">✕</span>
     <h3>Joint ${j.no} <span class="jtype ${j.type}" style="vertical-align:2px">${j.type === "F" ? "Field 용접" : "Shop 용접"}</span></h3>
-    <div class="sub">${line.id}${line.rev ? " (Rev." + line.rev + ")" : ""} · ${line.dn}A · 스풀 ${j.spool} · ${line.material}</div>
+    <div class="sub">${line.id}${line.rev ? " (Rev." + line.rev + ")" : ""} · ${j.dn || line.dn}A · 스풀 ${j.spool} · ${line.material}</div>
     <div class="status-banner" style="background:${STATUS_META[st].color}">${STATUS_META[st].label}</div>
     <div class="grid2">
       <div><label>Fit-up 일</label><input type="date" id="dFitup" value="${rec.fitupDate || ""}"></div>
@@ -1044,7 +1070,7 @@ function exportExcel() {
       const r = getRec(jointKey(line.id, j.no)) || {};
       const reps = r.repairs || [];
       jointRows.push({
-        "라인": line.id, "계통": lineSystem(line), "구경(DN)": line.dn, "Dia-Inch": lineInch(line), "조인트": j.no,
+        "라인": line.id, "계통": lineSystem(line), "구경(DN)": j.dn || line.dn, "Dia-Inch": jointInch(line, j), "조인트": j.no,
         "구분": j.type === "F" ? "Field" : "Shop", "스풀": j.spool,
         "상태": STATUS_META[jointStatus(line.id, j)].label,
         "Fit-up일": r.fitupDate || "", "용접일": r.weldDate || "", "용접사": r.welder || "",
@@ -1080,7 +1106,8 @@ function exportExcel() {
 
 // ---------- 백업/복원 ----------
 function exportJson() {
-  const blob = new Blob([JSON.stringify({ records: state.records, spools: state.spools, exportedAt: new Date().toISOString() }, null, 2)], { type: "application/json" });
+  const dynLines = (typeof loadDynamicLines === "function") ? loadDynamicLines() : [];
+  const blob = new Blob([JSON.stringify({ records: state.records, spools: state.spools, lines: dynLines, exportedAt: new Date().toISOString() }, null, 2)], { type: "application/json" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   const d = new Date();
@@ -1098,7 +1125,14 @@ function importJson(file) {
       if (!d.records && !d.spools) throw new Error("형식 오류");
       state.records = d.records || {};
       state.spools = d.spools || {};
-      save(); refreshAll();
+      save();
+      if (d.lines && d.lines.length && typeof saveDynamicLines === "function") {
+        saveDynamicLines(d.lines);
+        toast("백업을 불러왔습니다 — 새로고침합니다");
+        setTimeout(() => location.reload(), 600);
+        return;
+      }
+      refreshAll();
       toast("백업을 불러왔습니다");
     } catch (e) { alert("가져오기 실패: 올바른 백업 파일이 아닙니다."); }
   };
@@ -1115,10 +1149,35 @@ function toast(msg) {
 
 // ---------- 초기화 ----------
 window.addEventListener("DOMContentLoaded", () => {
+  if (typeof mergeDynamicLines === "function") mergeDynamicLines(); // PDF로 등록한 라인 병합
+  if (PIPE_DATA.lines.length > 20) showLabels = false;               // 대량 라인 시 번호 라벨 기본 숨김
   load();
   init3D();
   refreshAll();
   switchView("dash"); // 첫 화면: 대시보드
+
+  // 딥링크: ?view=work&line=<라인번호>&joint=<번호>  (특정 조인트 바로 공유)
+  const qp = new URLSearchParams(location.search);
+  if (qp.get("line")) {
+    const ln = PIPE_DATA.lines.find(l => l.id === qp.get("line"));
+    if (ln) { currentSystem = lineSystem(ln); currentLine = ln.id; refreshAll(); }
+  }
+  if (qp.get("view") === "work") {
+    switchView("work");
+    // 캔버스 크기 확정 후 여러 번 맞춤 (렌더 타이밍 보정)
+    [150, 500, 1000].forEach(ms => setTimeout(() => {
+      resize3D();
+      if (qp.get("joint") && qp.get("line")) selectJoint(qp.get("line") + "|" + qp.get("joint"), true);
+      else fitView();
+    }, ms));
+  }
+
+  if (DEMO_MODE) {
+    const b = document.createElement("div");
+    b.id = "demoBanner";
+    b.textContent = "🎬 시연용 예시 데이터 — 실제 공사 실적이 아닙니다";
+    document.body.appendChild(b);
+  }
   document.getElementById("vtDash").onclick = () => switchView("dash");
   document.getElementById("vtWork").onclick = () => switchView("work");
 

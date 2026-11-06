@@ -251,6 +251,25 @@
   .dash-fail-card:hover { background: rgba(244,67,54,.14); }
   .dash-line-row { display: grid; grid-template-columns: 1fr 90px 110px 70px; gap: 8px; padding: 7px 4px; border-bottom: 1px solid #222a36; font-size: 12.5px; align-items: center; }
   .dash-line-row.hdr { color: var(--muted); font-size: 11px; font-weight: 700; border-bottom: 1px solid var(--border); }
+  #demoBanner {
+    position: fixed; top: 0; left: 50%; transform: translateX(-50%);
+    background: #b36b00; color: #fff; font-size: 11.5px; font-weight: 700;
+    padding: 3px 16px; border-radius: 0 0 8px 8px; z-index: 200; letter-spacing: .2px;
+  }
+  #pdfProgress {
+    display: none; position: fixed; inset: 0; z-index: 300;
+    background: rgba(10,13,18,.75); align-items: center; justify-content: center;
+  }
+  #pdfProgress.open { display: flex; }
+  .pp-box {
+    width: 420px; background: var(--panel2); border: 1px solid var(--accent);
+    border-radius: 12px; padding: 22px 26px; text-align: center;
+  }
+  .pp-title { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
+  .pp-note { font-size: 11px; color: var(--c-delivered); margin-bottom: 14px; }
+  .pp-bar { height: 10px; background: #141a24; border-radius: 5px; overflow: hidden; }
+  .pp-fill { height: 100%; width: 0%; background: var(--accent); transition: width .15s; }
+  .pp-stat { margin-top: 10px; font-size: 12px; color: var(--muted); }
   #toast {
     position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
     background: #17426e; border: 1px solid var(--accent); color: #fff;
@@ -278,11 +297,13 @@
     </div>
   </div>
   <div class="spacer"></div>
+  <button class="btn primary" id="btnPdf">📄 도면 PDF 분석</button>
   <button class="btn primary" id="btnExcel">📊 엑셀 내보내기</button>
   <button class="btn" id="btnSaveJson">💾 백업(JSON)</button>
   <button class="btn" id="btnLoadJson">📂 가져오기</button>
   <button class="btn danger" id="btnReset">초기화</button>
   <input type="file" id="fileJson" accept=".json" style="display:none">
+  <input type="file" id="filePdf" accept=".pdf" multiple style="display:none">
 </header>
 
 <div id="dashPage"></div>
@@ -353,10 +374,22 @@
 
 <div id="toast"></div>
 
+<div id="pdfProgress">
+  <div class="pp-box">
+    <div class="pp-title">📄 도면 PDF 분석 중…</div>
+    <div class="pp-note">분석은 이 PC의 브라우저 안에서만 실행됩니다 (외부 전송 없음)</div>
+    <div class="pp-bar"><div class="pp-fill" id="ppFill"></div></div>
+    <div class="pp-stat" id="ppStat">준비 중…</div>
+  </div>
+</div>
+
 <script src="libs/three.min.js"></script>
 <script src="libs/OrbitControls.js"></script>
 <script src="libs/xlsx.full.min.js"></script>
+<script src="libs/pdf.min.js"></script>
 <script src="data.js"></script>
+<script src="demo.js"></script>
+<script src="pdf_import.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
