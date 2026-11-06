@@ -269,6 +269,12 @@
     background: #b36b00; color: #fff; font-size: 11.5px; font-weight: 700;
     padding: 3px 16px; border-radius: 0 0 8px 8px; z-index: 200; letter-spacing: .2px;
   }
+  .btn.fs-none, .btn.fs-need-perm { border-color: #c98a1e; color: #ffc46b; }
+  .btn.fs-need-perm { animation: borderpulse 1.2s infinite; }
+  .btn.fs-ok { border-color: #2e7d32; color: #8fe39a; }
+  .btn.fs-saving { border-color: var(--accent); color: #9fc7ff; }
+  .btn.fs-error { border-color: var(--c-fail); color: #ff8a80; }
+  .btn.fs-unsupported { opacity: .55; }
   #mgrModal {
     display: none; position: fixed; inset: 0; z-index: 250;
     background: rgba(10,13,18,.72); align-items: center; justify-content: center;
@@ -341,6 +347,7 @@
   <button class="btn primary" id="btnExcel">📊 엑셀 내보내기</button>
   <button class="btn" id="btnSaveJson">💾 백업(JSON)</button>
   <button class="btn" id="btnLoadJson">📂 가져오기</button>
+  <button class="btn fs-none" id="btnFolder">📁 저장폴더 연결</button>
   <button class="btn danger" id="btnManage">🗂 데이터 관리</button>
   <input type="file" id="fileJson" accept=".json" style="display:none">
   <input type="file" id="filePdf" accept=".pdf" multiple style="display:none">
@@ -439,9 +446,10 @@
 <script src="libs/OrbitControls.js"></script>
 <script src="libs/xlsx.full.min.js"></script>
 <script src="libs/pdf.min.js"></script>
-<script src="data.js?v=20261106b"></script>
-<script src="demo.js?v=20261106b"></script>
-<script src="pdf_import.js?v=20261106b"></script>
-<script src="app.js?v=20261106b"></script>
+<script src="folder_store.js?v=20261106c"></script>
+<script src="data.js?v=20261106c"></script>
+<script src="demo.js?v=20261106c"></script>
+<script src="pdf_import.js?v=20261106c"></script>
+<script src="app.js?v=20261106c"></script>
 </body>
 </html>

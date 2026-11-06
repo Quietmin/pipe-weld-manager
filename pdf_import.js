@@ -23,9 +23,25 @@ function loadDynamicLines() {
 function saveDynamicLines(lines) {
   localStorage.setItem(LINES_KEY, JSON.stringify({ lines, savedAt: new Date().toISOString() }));
 }
-const HIDE_SAMPLES_KEY = "weldmgr_hide_samples";
+const HIDE_SAMPLES_KEY = "weldmgr_hide_samples";   // (구버전 키 — 마이그레이션용)
+const SAMPLES_KEY = "weldmgr_samples";             // "show" | "hide" | 없음(자동)
 const IS_DEMO = new URLSearchParams(location.search).has("demo");
-function samplesHidden() { return !IS_DEMO && localStorage.getItem(HIDE_SAMPLES_KEY) === "1"; }
+
+// 자동 규칙: 내 도면을 한 장이라도 올리면 내장 샘플은 숨김
+function samplesPref() {
+  if (localStorage.getItem(HIDE_SAMPLES_KEY) === "1") {   // 구버전 설정 이어받기
+    localStorage.setItem(SAMPLES_KEY, "hide");
+    localStorage.removeItem(HIDE_SAMPLES_KEY);
+  }
+  return localStorage.getItem(SAMPLES_KEY) || "auto";
+}
+function samplesHidden() {
+  if (IS_DEMO) return false;
+  const pref = samplesPref();
+  if (pref === "show") return false;
+  if (pref === "hide") return true;
+  return loadDynamicLines().length > 0;            // 자동
+}
 
 // PIPE_DATA에 업로드 라인 병합 + 기본 샘플 숨김 (여러 번 호출해도 안전)
 function mergeDynamicLines() {
@@ -248,6 +264,7 @@ async function analyzePdfFiles(files) {
     `· 라인 ${newLines.length}개 (신규 ${added}, 갱신 ${updated})\n` +
     `· 조인트 ${jointCnt}개 등록\n`;
   if (fails.length) msg += `· 인식 실패 ${fails.length}페이지: ${fails.slice(0, 8).join(", ")}${fails.length > 8 ? " …" : ""}\n`;
+  if (samplesPref() === "auto") msg += `\u00b7 내장 샘플 라인 2개는 자동으로 숨겨집니다 (데이터 관리에서 다시 표시 가능)\n`;
   msg += `\n확인을 누르면 화면을 새로고침해 반영합니다.\n※ 3D 경로는 간이 배치이며, 분석은 전부 이 PC 안에서만 수행되었습니다.`;
   alert(msg);
   location.reload();
@@ -316,11 +333,15 @@ function renderManager() {
   h += `</div>`;
 
   const hidden = samplesHidden();
-  const samples = PIPE_DATA.lines.filter(l => !l.imported);
-  h += `<div class="mg-sec"><div class="mg-h">🧪 기본 샘플 라인 <span class="muted">(프로그램에 내장된 예시 도면)</span></div>
+  const pref = samplesPref();
+  const sampleIds = ["150-FG1-GK1-00006", "80-FG1-GB4-00005"];
+  const stateTxt = hidden
+    ? (pref === "auto" ? "숨김 — 내 도면이 등록되어 자동으로 제외됨" : "숨김 (수동 설정)")
+    : "표시 중 — " + sampleIds.map(hesc).join(", ");
+  h += `<div class="mg-sec"><div class="mg-h">🧪 기본 샘플 라인 <span class="muted">(프로그램에 내장된 예시 도면 2개)</span></div>
     <div class="mg-reset">
-      <span>${hidden ? "숨김 상태입니다." : "표시 중 — " + samples.map(l => hesc(l.id)).join(", ")}</span>
-      <button class="btn" data-act="samples">${hidden ? "다시 표시" : "숨기기"}</button>
+      <span>${stateTxt}</span>
+      <button class="btn" data-act="samples">${hidden ? "표시하기" : "숨기기"}</button>
     </div></div>`;
 
   h += `<div class="mg-sec"><div class="mg-h">♻ 초기화</div>
@@ -344,8 +365,7 @@ function renderManager() {
     } else if (act === "delline") {
       deleteLines([b.dataset.id], "라인 " + b.dataset.id + " 을(를) 삭제합니다.");
     } else if (act === "samples") {
-      if (hidden) localStorage.removeItem(HIDE_SAMPLES_KEY);
-      else localStorage.setItem(HIDE_SAMPLES_KEY, "1");
+      localStorage.setItem(SAMPLES_KEY, hidden ? "show" : "hide");
       location.reload();
     } else if (act === "resetRec") {
       if (!confirm("입력한 모든 실적(용접일·용접사·NDE·Repair·스풀입고)을 삭제합니다.\n도면(라인·조인트)은 유지됩니다.\n\n계속할까요?")) return;
@@ -358,7 +378,7 @@ function renderManager() {
     } else if (act === "resetAll") {
       if (!confirm("⚠ 전체 초기화\n\n입력한 실적과 업로드한 도면이 모두 삭제되고 처음 상태로 돌아갑니다.\n\n계속할까요?")) return;
       if (!confirm("정말 전부 삭제할까요? 되돌릴 수 없습니다.")) return;
-      [REC_KEY, LINES_KEY, HIDE_SAMPLES_KEY].forEach(k => localStorage.removeItem(k));
+      [REC_KEY, LINES_KEY, HIDE_SAMPLES_KEY, SAMPLES_KEY].forEach(k => localStorage.removeItem(k));
       location.reload();
     }
   });
