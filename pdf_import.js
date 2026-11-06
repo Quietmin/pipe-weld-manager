@@ -23,13 +23,22 @@ function loadDynamicLines() {
 function saveDynamicLines(lines) {
   localStorage.setItem(LINES_KEY, JSON.stringify({ lines, savedAt: new Date().toISOString() }));
 }
-// 앱 시작 시 PIPE_DATA에 병합 (app.js의 DOMContentLoaded에서 호출)
+const HIDE_SAMPLES_KEY = "weldmgr_hide_samples";
+const IS_DEMO = new URLSearchParams(location.search).has("demo");
+function samplesHidden() { return !IS_DEMO && localStorage.getItem(HIDE_SAMPLES_KEY) === "1"; }
+
+// PIPE_DATA에 업로드 라인 병합 + 기본 샘플 숨김 (여러 번 호출해도 안전)
 function mergeDynamicLines() {
+  if (samplesHidden()) {
+    for (let i = PIPE_DATA.lines.length - 1; i >= 0; i--)
+      if (!PIPE_DATA.lines[i].imported) PIPE_DATA.lines.splice(i, 1);
+  }
   const dyn = loadDynamicLines();
   const have = new Set(PIPE_DATA.lines.map(l => l.id));
   dyn.forEach(l => { if (!have.has(l.id)) { PIPE_DATA.lines.push(l); have.add(l.id); } });
   return dyn.length;
 }
+mergeDynamicLines();
 
 // ───────────────────────── 페이지 텍스트 → 구조 추출 ─────────────────────────
 function extractPage(tokens) {
@@ -157,6 +166,7 @@ function buildLinesFromEntries(entries) {
         from: ft1 || "", to: ft2 || "",
         ndt: "", drawing: sheets.length ? `Sh.${sheets.join(",")}` : "",
         rev: "", imported: true, isoNo: isoNos[0] || "",
+        srcFile: part.es[0].file || "", importedAt: new Date().toISOString(),
         nodes: [[0, 0, 3000], [-L, 0, 3000]],
         spools: [],
         joints: nos.map((n, i) => ({
@@ -243,10 +253,131 @@ async function analyzePdfFiles(files) {
   location.reload();
 }
 
+// ───────────────────────── 데이터 관리 · 초기화 ─────────────────────────
+const REC_KEY = "weldmgr_v1";
+function hesc(v) {
+  return String(v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function readRecStore() {
+  try { return JSON.parse(localStorage.getItem(REC_KEY) || "{}"); } catch (e) { return {}; }
+}
+function lineOfKey(k) { return k.slice(0, k.lastIndexOf("|")); }
+function countRecordsFor(ids) {
+  const set = new Set(ids), st = readRecStore();
+  return Object.keys(st.records || {}).filter(k => set.has(lineOfKey(k))).length;
+}
+function purgeRecordsFor(ids) {
+  const set = new Set(ids), st = readRecStore();
+  for (const k of Object.keys(st.records || {})) if (set.has(lineOfKey(k))) delete st.records[k];
+  for (const k of Object.keys(st.spools || {})) if (set.has(lineOfKey(k))) delete st.spools[k];
+  localStorage.setItem(REC_KEY, JSON.stringify(st));
+}
+function deleteLines(ids, label) {
+  const n = countRecordsFor(ids);
+  const msg = label + "\n\n· 라인 " + ids.length + "개 삭제" +
+    (n ? "\n· 입력한 용접·NDE 실적 " + n + "건도 함께 삭제됩니다" : "") + "\n\n계속할까요?";
+  if (!confirm(msg)) return;
+  const set = new Set(ids);
+  saveDynamicLines(loadDynamicLines().filter(l => !set.has(l.id)));
+  purgeRecordsFor(ids);
+  location.reload();
+}
+
+let _mgrGroups = [];
+function renderManager() {
+  const body = document.getElementById("mgrBody");
+  const dyn = loadDynamicLines();
+  const groups = new Map();
+  dyn.forEach(l => {
+    const k = l.srcFile || "(파일명 미기록)";
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(l);
+  });
+  _mgrGroups = [...groups];
+
+  let h = `<div class="mg-sec"><div class="mg-h">📄 업로드한 도면 파일 <span class="muted">(라인 ${dyn.length}개)</span></div>`;
+  if (!_mgrGroups.length) h += `<div class="muted mg-empty">업로드한 도면이 없습니다.</div>`;
+  _mgrGroups.forEach(([file, ls], gi) => {
+    const jn = ls.reduce((a, l) => a + l.joints.length, 0);
+    const rn = countRecordsFor(ls.map(l => l.id));
+    const dt = (ls[0].importedAt || "").slice(0, 10);
+    h += `<div class="mg-file">
+      <div class="mg-row">
+        <span class="mg-name" title="${hesc(file)}">📄 ${hesc(file)}</span>
+        <span class="muted">라인 ${ls.length} · 조인트 ${jn}${rn ? ` · 실적 ${rn}건` : ""}${dt ? ` · ${dt}` : ""}</span>
+        <button class="btn sm" data-act="toggle" data-g="${gi}">라인 ▾</button>
+        <button class="btn danger sm" data-act="delfile" data-g="${gi}">🗑 파일 삭제</button>
+      </div>
+      <div class="mg-lines" id="mgLines${gi}">` +
+      ls.map(l => `<div class="mg-line"><span>${hesc(l.id)} <span class="muted">· 조인트 ${l.joints.length}</span></span>
+        <button class="btn danger sm" data-act="delline" data-id="${hesc(l.id)}">삭제</button></div>`).join("") +
+      `</div></div>`;
+  });
+  h += `</div>`;
+
+  const hidden = samplesHidden();
+  const samples = PIPE_DATA.lines.filter(l => !l.imported);
+  h += `<div class="mg-sec"><div class="mg-h">🧪 기본 샘플 라인 <span class="muted">(프로그램에 내장된 예시 도면)</span></div>
+    <div class="mg-reset">
+      <span>${hidden ? "숨김 상태입니다." : "표시 중 — " + samples.map(l => hesc(l.id)).join(", ")}</span>
+      <button class="btn" data-act="samples">${hidden ? "다시 표시" : "숨기기"}</button>
+    </div></div>`;
+
+  h += `<div class="mg-sec"><div class="mg-h">♻ 초기화</div>
+    <div class="mg-reset">
+      <span><b>실적만 초기화</b> <span class="muted">— 용접일·용접사·NDE·Repair·스풀입고 삭제, 도면(라인)은 유지</span></span>
+      <button class="btn danger" data-act="resetRec">실적 초기화</button>
+      <span><b>업로드 도면 전체 삭제</b> <span class="muted">— PDF로 등록한 라인 전부와 그 실적 삭제</span></span>
+      <button class="btn danger" data-act="resetLines">도면 전체 삭제</button>
+      <span><b>전체 초기화</b> <span class="muted">— 실적·업로드 도면 모두 삭제, 처음 설치 상태로</span></span>
+      <button class="btn danger" data-act="resetAll">전체 초기화</button>
+    </div></div>`;
+  body.innerHTML = h;
+
+  body.querySelectorAll("[data-act]").forEach(b => b.onclick = () => {
+    const act = b.dataset.act;
+    if (act === "toggle") {
+      document.getElementById("mgLines" + b.dataset.g).classList.toggle("open");
+    } else if (act === "delfile") {
+      const [file, ls] = _mgrGroups[+b.dataset.g];
+      deleteLines(ls.map(l => l.id), "「" + file + "」 파일로 등록한 도면을 삭제합니다.");
+    } else if (act === "delline") {
+      deleteLines([b.dataset.id], "라인 " + b.dataset.id + " 을(를) 삭제합니다.");
+    } else if (act === "samples") {
+      if (hidden) localStorage.removeItem(HIDE_SAMPLES_KEY);
+      else localStorage.setItem(HIDE_SAMPLES_KEY, "1");
+      location.reload();
+    } else if (act === "resetRec") {
+      if (!confirm("입력한 모든 실적(용접일·용접사·NDE·Repair·스풀입고)을 삭제합니다.\n도면(라인·조인트)은 유지됩니다.\n\n계속할까요?")) return;
+      localStorage.removeItem(REC_KEY);
+      location.reload();
+    } else if (act === "resetLines") {
+      const ids = loadDynamicLines().map(l => l.id);
+      if (!ids.length) { alert("업로드한 도면이 없습니다."); return; }
+      deleteLines(ids, "PDF로 업로드한 도면을 전부 삭제합니다.");
+    } else if (act === "resetAll") {
+      if (!confirm("⚠ 전체 초기화\n\n입력한 실적과 업로드한 도면이 모두 삭제되고 처음 상태로 돌아갑니다.\n\n계속할까요?")) return;
+      if (!confirm("정말 전부 삭제할까요? 되돌릴 수 없습니다.")) return;
+      [REC_KEY, LINES_KEY, HIDE_SAMPLES_KEY].forEach(k => localStorage.removeItem(k));
+      location.reload();
+    }
+  });
+}
+function openManager() {
+  if (IS_DEMO) { alert("시연 모드(?demo=1)에서는 데이터 관리를 사용할 수 없습니다."); return; }
+  renderManager();
+  document.getElementById("mgrModal").classList.add("open");
+}
+
 // ───────────────────────── 이벤트 연결 ─────────────────────────
 window.addEventListener("DOMContentLoaded", () => {
   const input = document.getElementById("filePdf");
   document.getElementById("btnPdf").onclick = () => input.click();
+  const modal = document.getElementById("mgrModal");
+  document.getElementById("btnManage").onclick = openManager;
+  document.getElementById("mgrClose").onclick = () => modal.classList.remove("open");
+  modal.onclick = e => { if (e.target === modal) modal.classList.remove("open"); };
+  document.getElementById("mgrBackup").onclick = () => document.getElementById("btnSaveJson").click();
   input.onchange = e => {
     const fs = [...e.target.files].filter(f => /\.pdf$/i.test(f.name));
     if (fs.length) analyzePdfFiles(fs);

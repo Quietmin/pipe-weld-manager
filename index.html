@@ -249,6 +249,18 @@
     margin-bottom: 8px; cursor: pointer; background: rgba(244,67,54,.06); font-size: 12.5px;
   }
   .dash-fail-card:hover { background: rgba(244,67,54,.14); }
+  .dash-line-tools { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+  #dashLineSearch {
+    flex: 1; min-width: 220px; background: var(--panel2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px; padding: 6px 9px; font-size: 12px;
+  }
+  #dashLineSearch:focus { outline: none; border-color: var(--accent); }
+  .dash-sys-chip {
+    padding: 3px 10px; border-radius: 12px; border: 1px solid var(--border);
+    background: var(--panel2); color: var(--muted); font-size: 11px; cursor: pointer; user-select: none;
+  }
+  .dash-sys-chip.on { background: #17426e; border-color: var(--accent); color: #fff; }
+  #dashLineList { max-height: 420px; overflow-y: auto; }
   .dash-line-row { display: grid; grid-template-columns: 1fr 90px 110px 70px; gap: 8px; padding: 7px 4px; border-bottom: 1px solid #222a36; font-size: 12.5px; align-items: center; }
   .dash-line-row.hdr { color: var(--muted); font-size: 11px; font-weight: 700; border-bottom: 1px solid var(--border); }
   #demoBanner {
@@ -256,6 +268,33 @@
     background: #b36b00; color: #fff; font-size: 11.5px; font-weight: 700;
     padding: 3px 16px; border-radius: 0 0 8px 8px; z-index: 200; letter-spacing: .2px;
   }
+  #mgrModal {
+    display: none; position: fixed; inset: 0; z-index: 250;
+    background: rgba(10,13,18,.72); align-items: center; justify-content: center;
+  }
+  #mgrModal.open { display: flex; }
+  .mg-box {
+    width: 640px; max-width: 94vw; max-height: 86vh; overflow-y: auto;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px;
+  }
+  .mg-top { display: flex; justify-content: space-between; align-items: center; font-size: 15px; margin-bottom: 10px; }
+  .mg-close { cursor: pointer; color: var(--muted); font-size: 18px; }
+  .mg-warn {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    background: rgba(255,152,0,.1); border: 1px solid #7a5200; border-radius: 8px;
+    padding: 8px 12px; font-size: 12px; color: #ffc46b; margin-bottom: 12px;
+  }
+  .mg-sec { margin-bottom: 14px; }
+  .mg-h { font-size: 13px; font-weight: 700; margin-bottom: 8px; }
+  .mg-empty { padding: 10px 2px; font-size: 12px; }
+  .mg-file { background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; }
+  .mg-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; font-size: 12px; }
+  .mg-name { font-weight: 700; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mg-lines { display: none; border-top: 1px solid var(--border); max-height: 220px; overflow-y: auto; }
+  .mg-lines.open { display: block; }
+  .mg-line { display: flex; justify-content: space-between; align-items: center; padding: 5px 12px; font-size: 12px; border-bottom: 1px solid #222a36; }
+  .mg-reset { display: grid; grid-template-columns: 1fr auto; gap: 8px 12px; align-items: center; font-size: 12px; }
+  .btn.sm { padding: 2px 9px; font-size: 11px; }
   #pdfProgress {
     display: none; position: fixed; inset: 0; z-index: 300;
     background: rgba(10,13,18,.75); align-items: center; justify-content: center;
@@ -292,7 +331,7 @@
   <div class="line-picker" id="linePicker">
     <button id="lpBtn">전체 라인 ▾</button>
     <div id="lpDrop">
-      <input id="lpSearch" type="text" placeholder="🔍 라인번호 검색 (예: 00006, GK1)" autocomplete="off">
+      <input id="lpSearch" type="text" placeholder="🔍 라인번호 · ISO NO. · 도면파일 · 계통 검색" autocomplete="off">
       <div id="lpList"></div>
     </div>
   </div>
@@ -301,7 +340,7 @@
   <button class="btn primary" id="btnExcel">📊 엑셀 내보내기</button>
   <button class="btn" id="btnSaveJson">💾 백업(JSON)</button>
   <button class="btn" id="btnLoadJson">📂 가져오기</button>
-  <button class="btn danger" id="btnReset">초기화</button>
+  <button class="btn danger" id="btnManage">🗂 데이터 관리</button>
   <input type="file" id="fileJson" accept=".json" style="display:none">
   <input type="file" id="filePdf" accept=".pdf" multiple style="display:none">
 </header>
@@ -373,6 +412,18 @@
 </div>
 
 <div id="toast"></div>
+
+<div id="mgrModal">
+  <div class="mg-box">
+    <div class="mg-top">
+      <b>🗂 데이터 관리 · 초기화</b>
+      <span class="mg-close" id="mgrClose">✕</span>
+    </div>
+    <div class="mg-warn">⚠ 삭제·초기화는 되돌릴 수 없습니다. 필요하면 먼저 백업하세요.
+      <button class="btn" id="mgrBackup">💾 지금 백업</button></div>
+    <div id="mgrBody"></div>
+  </div>
+</div>
 
 <div id="pdfProgress">
   <div class="pp-box">

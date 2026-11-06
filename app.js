@@ -17,13 +17,14 @@ const NDE_TYPES = ["RT", "UT", "PT", "MT", "VT"];
 const DN_INCH = { 15:0.5, 20:0.75, 25:1, 32:1.25, 40:1.5, 50:2, 65:2.5, 80:3, 90:3.5, 100:4, 125:5, 150:6, 200:8, 250:10, 300:12, 350:14, 400:16, 450:18, 500:20, 600:24 };
 function lineInch(line) { return DN_INCH[line.dn] || line.dn / 25.4; }
 function jointInch(line, j) { return j.dn ? (DN_INCH[j.dn] || j.dn / 25.4) : lineInch(line); }
+function attrEsc(v) { return String(v).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;"); }
 function fmtDI(v) { return (Math.round(v * 10) / 10).toLocaleString(); }
 
 // ---------- 상태 ----------
 let state = { records: {}, spools: {} };
 let currentView = "dash";                // 첫 화면: 대시보드
 let currentSystem = "ALL";               // 배관 계통 필터
-let currentLine = PIPE_DATA.lines[0].id; // 기본: 첫 라인
+let currentLine = PIPE_DATA.lines.length ? PIPE_DATA.lines[0].id : "ALL"; // 기본: 첫 라인
 let selectedKey = null;
 let showLabels = true;
 
@@ -420,10 +421,14 @@ function renderLineTabs() {
   btn.textContent = (currentLine === "ALL" ? allLabel() + " (" + n + "개)" : currentLine) + "  ▾";
   renderLineList();
 }
+function lineSearchText(l) {
+  return [l.id, l.isoNo ? "iso" + l.isoNo : "", l.isoNo || "", l.drawing || "",
+          l.srcFile || "", lineSystem(l), l.from || "", l.to || ""].join(" ").toLowerCase();
+}
 function renderLineList() {
   const list = document.getElementById("lpList");
   const q = document.getElementById("lpSearch").value.trim().toLowerCase();
-  const lines = systemLines().filter(l => !q || l.id.toLowerCase().includes(q));
+  const lines = systemLines().filter(l => !q || lineSearchText(l).includes(q));
   list.innerHTML = "";
   const pick = id => { currentLine = id; closeLinePicker(); refreshAll(); fitView(); };
   if (!q) {
@@ -440,7 +445,8 @@ function renderLineList() {
     l.joints.forEach(j => { if (jointStatus(l.id, j) === "FAIL") fails++; });
     const d = document.createElement("div");
     d.className = "lp-item" + (currentLine === l.id ? " active" : "");
-    d.innerHTML = `<span><b>${l.id}</b> <span class="muted">${l.dn}A</span>${fails ? ` <span style="color:var(--c-fail)">⚠${fails}</span>` : ""}</span>
+    const tags = [l.isoNo ? "ISO " + l.isoNo : "", lineSystem(l)].filter(Boolean).join(" · ");
+    d.innerHTML = `<span><b>${l.id}</b> <span class="muted">${l.dn}A${tags ? " · " + tags : ""}</span>${fails ? ` <span style="color:var(--c-fail)">⚠${fails}</span>` : ""}</span>
       <span class="muted">완료 ${pct}%</span>`;
     d.onclick = () => pick(l.id);
     list.appendChild(d);
@@ -733,6 +739,16 @@ function stackBarHtml(di) {
 
 function renderDashPage() {
   const el = document.getElementById("dashPage");
+  if (!PIPE_DATA.lines.length) {
+    el.innerHTML = `<div class="dash-sec" style="max-width:560px;margin:60px auto;text-align:center;padding:30px">
+      <div style="font-size:40px">📄</div>
+      <h2 style="margin:10px 0 6px">등록된 도면이 없습니다</h2>
+      <div class="muted" style="margin-bottom:16px">상단 <b>📄 도면 PDF 분석</b>으로 ISO 도면 PDF를 넣으면 라인·조인트가 자동 등록됩니다.<br>
+      (분석은 이 PC의 브라우저 안에서만 실행됩니다)</div>
+      <button class="btn primary" onclick="document.getElementById('btnPdf').click()">📄 도면 PDF 분석</button>
+    </div>`;
+    return;
+  }
   const all = PIPE_DATA.lines;
   const di = statusDiaInch(all);
   const passPct = di.total ? Math.round(di.PASS / di.total * 100) : 0;
@@ -842,19 +858,29 @@ function renderDashPage() {
   html += `</div></div>`;
 
   // ---- 라인별 현황 + 불합격 목록 ----
+  const sysChips = allSystems().map(sy =>
+    `<span class="dash-sys-chip" data-sys="${sy.code}">${sy.code} (${sy.count})</span>`).join("");
   html += `<div class="dash-cols"><div class="dash-sec" style="flex:1.4">
-    <h2>📋 라인별 현황</h2>
-    <div class="dash-line-row hdr"><span>라인번호</span><span>조인트</span><span>완료 D/I</span><span>진척</span></div>`;
+    <h2>📋 라인별 현황 <span class="muted">(${all.length}개 · 클릭 시 3D 보기)</span></h2>
+    <div class="dash-line-tools">
+      <input id="dashLineSearch" type="text" placeholder="🔍 라인번호 · ISO NO. · 도면파일 · 계통 검색" autocomplete="off">
+      <span class="dash-sys-chip${true ? " on" : ""}" data-sys="">전체</span>${sysChips}
+    </div>
+    <div class="dash-line-row hdr"><span>라인번호</span><span>조인트</span><span>완료 D/I</span><span>진척</span></div>
+    <div id="dashLineList">`;
   all.forEach(line => {
     const ldi = statusDiaInch([line]);
     const pct = ldi.total ? Math.round(ldi.PASS / ldi.total * 100) : 0;
-    html += `<div class="dash-line-row" data-line="${line.id}" style="cursor:pointer" title="클릭: 3D 보기">
-      <span><b>${line.id}</b> <span class="muted">${line.dn}A${line.rev ? " Rev." + line.rev : ""}</span></span>
+    const tag = line.isoNo ? `ISO ${line.isoNo}` : (line.rev ? "Rev." + line.rev : "");
+    html += `<div class="dash-line-row" data-line="${attrEsc(line.id)}" data-sys="${attrEsc(lineSystem(line))}"
+      data-search="${lineSearchText(line).replace(/"/g, "&quot;")}" style="cursor:pointer" title="클릭: 3D 보기">
+      <span><b>${line.id}</b> <span class="muted">${line.dn}A${tag ? " · " + tag : ""}</span></span>
       <span class="muted">${line.joints.length}개</span>
       <span>${fmtDI(ldi.PASS)} / ${fmtDI(ldi.total)}</span>
       <span style="color:${pct === 100 ? "var(--c-pass)" : "inherit"}"><b>${pct}%</b></span>
     </div>`;
   });
+  html += `</div><div class="lp-count" id="dashLineCount"></div>`;
   html += `</div><div class="dash-sec"><h2 style="color:${failJoints ? "var(--c-fail)" : "inherit"}">⚠ NDE 불합격 조인트</h2>`;
   if (!failJoints) {
     html += `<div class="muted">현재 불합격 조인트가 없습니다. 👍</div>`;
@@ -862,7 +888,7 @@ function renderDashPage() {
     all.forEach(line => line.joints.forEach(j => {
       if (jointStatus(line.id, j) !== "FAIL") return;
       const r = getRec(jointKey(line.id, j.no));
-      html += `<div class="dash-fail-card" data-key="${jointKey(line.id, j.no)}">
+      html += `<div class="dash-fail-card" data-key="${attrEsc(jointKey(line.id, j.no))}">
         <b>J.${j.no}</b> — ${line.id} · ${j.spool} · ${j.type === "F" ? "Field" : "Shop"}<br>
         <span class="muted">용접사 ${r && r.welder || "-"} · NDE ${r && r.ndeDate || "-"} · Repair ${r && r.repairs ? r.repairs.length : 0}회 — 클릭하여 3D 확인</span>
       </div>`;
@@ -877,6 +903,29 @@ function renderDashPage() {
     currentSystem = d.dataset.sys; currentLine = "ALL";
     switchView("work"); refreshAll(); fitView();
   });
+  // 라인별 현황 검색/계통 필터
+  const dls = el.querySelector("#dashLineSearch");
+  if (dls) {
+    const applyDashFilter = () => {
+      const q = dls.value.trim().toLowerCase();
+      const sys = el.querySelector(".dash-sys-chip.on")?.dataset.sys || "";
+      let shown = 0;
+      el.querySelectorAll("#dashLineList .dash-line-row").forEach(r => {
+        const ok = (!q || r.dataset.search.includes(q)) && (!sys || r.dataset.sys === sys);
+        r.style.display = ok ? "" : "none";
+        if (ok) shown++;
+      });
+      const c = el.querySelector("#dashLineCount");
+      if (c) c.textContent = (q || sys) ? `검색 결과 ${shown}개` : `라인 ${shown}개`;
+    };
+    dls.oninput = applyDashFilter;
+    el.querySelectorAll(".dash-sys-chip").forEach(ch => ch.onclick = () => {
+      el.querySelectorAll(".dash-sys-chip").forEach(x => x.classList.remove("on"));
+      ch.classList.add("on");
+      applyDashFilter();
+    });
+    applyDashFilter();
+  }
   el.querySelectorAll(".dash-line-row[data-line]").forEach(d => d.onclick = () => {
     const line = PIPE_DATA.lines.find(l => l.id === d.dataset.line);
     currentSystem = lineSystem(line); currentLine = line.id;
@@ -1208,16 +1257,6 @@ window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btnSaveJson").onclick = exportJson;
   document.getElementById("btnLoadJson").onclick = () => document.getElementById("fileJson").click();
   document.getElementById("fileJson").onchange = e => { if (e.target.files[0]) importJson(e.target.files[0]); e.target.value = ""; };
-  document.getElementById("btnReset").onclick = () => {
-    if (confirm("모든 입력 데이터(용접일/NDE/입고일)를 초기화할까요?\n라인·조인트 구조는 유지됩니다.")) {
-      state = { records: {}, spools: {} };
-      save(); selectedKey = null; selectRing.visible = false;
-      document.getElementById("detail").classList.remove("open");
-      refreshAll();
-      toast("초기화했습니다");
-    }
-  };
-
   // 뷰어 크기 감지
   new ResizeObserver(resize3D).observe(document.getElementById("viewer"));
 });
